@@ -28,15 +28,23 @@ Implement purchase return functionality where:
 - [2026-04-05] Modified `processPurchaseReturn()` helper to handle partial/full returns
 - [2026-04-05] Updated POST /api/purchase-returns endpoint for new logic
 - [2026-04-05] Updated PUT /api/purchase-returns/:id endpoint for edit support
-- [2026-04-05] Added database migration for RETURNED status
+- [2026-04-05] Added database migration for RETURNED status (auto-runs on startup)
+- [2026-04-05] Created manual migration script: `/app/backend/scripts/migrate-returned-status.js`
 
 ## Files Modified
-- `/app/backend/config/database.js` - Added RETURNED status to lots tables
+- `/app/backend/config/database.js` - Added RETURNED status to lots tables + migration
 - `/app/backend/routes/purchaseReturns.js` - Rewritten return logic
+- `/app/backend/scripts/migrate-returned-status.js` - Manual migration script
 
 ## Testing Status
 - Backend: 100% (28/28 tests passed)
 - All purchase return scenarios validated
+
+## Known Issues & Fixes
+- **CHECK constraint error**: If you see "CHECK constraint failed: status IN ('IN_STORE'...)", 
+  your database needs migration. Either:
+  1. Restart the backend (migration runs automatically)
+  2. Run: `node backend/scripts/migrate-returned-status.js`
 
 ## Backlog / Future Enhancements
 - P1: Add return reason dropdown with predefined options
