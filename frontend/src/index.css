@@ -1,0 +1,394 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ── Dark Theme (default) ─────────────────────────────────────── */
+  :root {
+    --background: 216 50% 2%;
+    --foreground: 210 40% 98%;
+    --card: 218 40% 7%;
+    --card-foreground: 210 40% 98%;
+    --popover: 218 40% 7%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 43 96% 56%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 217 33% 22%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 55%;
+    --accent: 43 96% 56%;
+    --accent-foreground: 0 0% 0%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 216 25% 20%;
+    --input: 216 25% 20%;
+    --ring: 43 96% 56%;
+    --chart-1: 43 96% 56%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 220 70% 50%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --radius: 0.25rem;
+
+    /* Semantic color tokens — used in overrides below */
+    --color-page-bg:        #020408;
+    --color-card-bg:        #0D1424;
+    --color-input-bg:       #0A0F1C;
+    --color-surface:        #1E2738;
+    --color-surface-hover:  #2D3648;
+    --color-text-primary:   #f1f5f9;   /* slate-100 */
+    --color-text-secondary: #94a3b8;   /* slate-400 */
+    --color-text-muted:     #64748b;   /* slate-500 */
+    --color-border:         #2D3648;
+    --color-divider:        #1E2738;
+
+    /* Recharts tooltip (dark) */
+    --tooltip-bg:           #0F1623;
+    --tooltip-border:       #2D3648;
+    --tooltip-text:         #e2e8f0;
+
+    /* Sidebar / scrollbar */
+    --sidebar-bg: 218 40% 6%;
+    --sidebar-border: 216 25% 20%;
+    --table-header-bg: 218 35% 11%;
+    --table-row-hover: rgba(245, 158, 11, 0.06);
+    --scrollbar-track: #0F1623;
+    --scrollbar-thumb: #2D3648;
+  }
+
+  /* ── Light Theme ──────────────────────────────────────────────── */
+  .light {
+    --background: 0 0% 97%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 43 96% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 94%;
+    --muted-foreground: 215 16% 40%;
+    --accent: 43 96% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 88%;
+    --input: 214 32% 88%;
+    --ring: 43 96% 45%;
+    --chart-1: 43 96% 45%;
+    --chart-2: 160 60% 38%;
+    --chart-3: 220 70% 50%;
+    --chart-4: 280 65% 55%;
+    --chart-5: 340 75% 50%;
+
+    /* Semantic color tokens — light versions */
+    --color-page-bg:        #f5f7fa;
+    --color-card-bg:        #ffffff;
+    --color-input-bg:       #f8fafc;
+    --color-surface:        #f1f5f9;
+    --color-surface-hover:  #e2e8f0;
+    --color-text-primary:   #0f172a;   /* slate-900 */
+    --color-text-secondary: #475569;   /* slate-600 */
+    --color-text-muted:     #64748b;   /* slate-500 */
+    --color-border:         #e2e8f0;
+    --color-divider:        #f1f5f9;
+
+    /* Recharts tooltip (light) */
+    --tooltip-bg:           #ffffff;
+    --tooltip-border:       #cbd5e1;
+    --tooltip-text:         #1e293b;
+
+    /* Sidebar / scrollbar */
+    --sidebar-bg: 0 0% 100%;
+    --sidebar-border: 214 32% 88%;
+    --table-header-bg: 210 40% 94%;
+    --table-row-hover: rgba(245, 158, 11, 0.08);
+    --scrollbar-track: #f1f5f9;
+    --scrollbar-thumb: #cbd5e1;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   BASE RESETS
+══════════════════════════════════════════════════════════════════ */
+
+* {
+  @apply border-border;
+  box-sizing: border-box;
+}
+
+body {
+  @apply bg-background text-foreground;
+  font-family: 'Manrope', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+}
+
+.font-mono, code, .data-cell {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SCROLLBAR — theme aware
+══════════════════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #F59E0B; }
+
+/* ══════════════════════════════════════════════════════════════════
+   ANIMATIONS
+══════════════════════════════════════════════════════════════════ */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50%       { box-shadow: 0 0 12px 2px rgba(245, 158, 11, 0.15); }
+}
+.animate-fade-in  { animation: fadeIn  0.3s ease-out forwards; }
+.animate-slide-in { animation: slideIn 0.3s ease-out forwards; }
+.animate-pulse-glow { animation: pulseGlow 2s ease-in-out infinite; }
+
+/* ══════════════════════════════════════════════════════════════════
+   INDUSTRIAL CARD — theme aware
+══════════════════════════════════════════════════════════════════ */
+
+.industrial-card {
+  @apply overflow-hidden rounded-sm border;
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
+  box-shadow: 0 1px 0 0 rgba(255,255,255,0.05) inset;
+}
+.light .industrial-card {
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.08), 0 1px 2px 0 rgba(0,0,0,0.04);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   ERP TABLE — theme aware
+══════════════════════════════════════════════════════════════════ */
+
+.erp-table th {
+  @apply text-xs uppercase tracking-wider font-semibold px-4 py-3 border-b;
+  font-family: 'Barlow Condensed', sans-serif;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  border-color: hsl(var(--border));
+}
+.erp-table td {
+  @apply text-sm px-4 py-3 border-b;
+  font-family: 'JetBrains Mono', monospace;
+  border-color: hsl(var(--border) / 0.5);
+  color: hsl(var(--card-foreground));
+}
+.erp-table tr {
+  @apply transition-colors duration-150;
+}
+.erp-table tr:hover {
+  background: var(--table-row-hover);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   STATUS BADGES
+══════════════════════════════════════════════════════════════════ */
+
+.badge-success { @apply bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 px-2 py-0.5 text-xs rounded-none uppercase tracking-wider; font-family: 'JetBrains Mono', monospace; }
+.badge-warning { @apply bg-amber-500/10 text-amber-500 border border-amber-500/30 px-2 py-0.5 text-xs rounded-none uppercase tracking-wider; font-family: 'JetBrains Mono', monospace; }
+.badge-error   { @apply bg-red-500/10 text-red-500 border border-red-500/30 px-2 py-0.5 text-xs rounded-none uppercase tracking-wider; font-family: 'JetBrains Mono', monospace; }
+.badge-neutral { @apply bg-slate-500/10 text-slate-500 border border-slate-500/20 px-2 py-0.5 text-xs rounded-none uppercase tracking-wider; font-family: 'JetBrains Mono', monospace; }
+.badge-info    { @apply bg-blue-500/10 text-blue-500 border border-blue-500/30 px-2 py-0.5 text-xs rounded-none uppercase tracking-wider; font-family: 'JetBrains Mono', monospace; }
+
+/* ══════════════════════════════════════════════════════════════════
+   RECHARTS TOOLTIP — global fix, both themes
+   All chart tooltips across ALL pages get this treatment.
+══════════════════════════════════════════════════════════════════ */
+
+/* The wrapper box */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: var(--tooltip-bg) !important;
+  border: 1px solid var(--tooltip-border) !important;
+  border-radius: 4px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25) !important;
+  padding: 8px 12px !important;
+}
+
+/* Label at the top of the tooltip (e.g. "Revenue") */
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-label {
+  color: var(--tooltip-text) !important;
+  font-family: 'Barlow Condensed', sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  margin-bottom: 4px !important;
+}
+
+/* Each value row in the tooltip */
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-item {
+  color: var(--tooltip-text) !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 12px !important;
+  padding: 1px 0 !important;
+}
+
+/* The colored dot/name part */
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-item-name {
+  color: var(--tooltip-text) !important;
+}
+
+/* The numeric value part */
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-item-value {
+  color: #F59E0B !important;
+  font-weight: 600 !important;
+}
+
+/* Separator line in multi-series tooltips */
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-item-separator {
+  color: var(--tooltip-text) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   LIGHT THEME — override hardcoded dark Tailwind classes
+   These rules flip dark-specific hardcoded classes to their
+   light equivalents without touching any component file.
+══════════════════════════════════════════════════════════════════ */
+
+/* Page background */
+.light .bg-\[#020408\]  { background-color: #f5f7fa !important; }
+.light .bg-\[#0A0F1C\]  { background-color: #f8fafc !important; }
+.light .bg-\[#0D1423\],
+.light .bg-\[#0D1424\]  { background-color: #ffffff !important; }
+.light .bg-\[#0F1623\]  { background-color: #f8fafc !important; }
+.light .bg-\[#111827\]  { background-color: #f1f5f9 !important; }
+.light .bg-\[#1E2738\]  { background-color: #f1f5f9 !important; }
+.light .bg-\[#2D3648\]  { background-color: #e2e8f0 !important; }
+
+/* Text colors — flip white/light-slate to dark */
+.light .text-white       { color: #0f172a !important; }
+.light .text-slate-100   { color: #1e293b !important; }
+.light .text-slate-200   { color: #1e293b !important; }
+.light .text-slate-300   { color: #334155 !important; }
+.light .text-slate-400   { color: #475569 !important; }
+.light .text-slate-500   { color: #64748b !important; }
+.light .text-slate-600   { color: #64748b !important; }
+
+/* Allow colored data values to keep their colors */
+.light .text-amber-400   { color: #d97706 !important; }
+.light .text-amber-500   { color: #b45309 !important; }
+.light .text-emerald-400 { color: #059669 !important; }
+.light .text-emerald-500 { color: #047857 !important; }
+.light .text-red-400     { color: #dc2626 !important; }
+.light .text-red-500     { color: #b91c1c !important; }
+.light .text-blue-400    { color: #2563eb !important; }
+.light .text-blue-500    { color: #1d4ed8 !important; }
+.light .text-purple-400  { color: #7c3aed !important; }
+.light .text-orange-400  { color: #ea580c !important; }
+.light .text-yellow-400  { color: #ca8a04 !important; }
+.light .text-green-400   { color: #16a34a !important; }
+
+/* Borders */
+.light .border-\[#2D3648\] { border-color: #e2e8f0 !important; }
+.light .border-\[#1E2738\] { border-color: #f1f5f9 !important; }
+.light .border-\[#0A0F1C\] { border-color: #cbd5e1 !important; }
+
+/* Dividers inside cards */
+.light .h-px.bg-\[#2D3648\] { background-color: #e2e8f0 !important; }
+
+/* Input fields */
+.light input,
+.light select,
+.light textarea {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+.light input::placeholder,
+.light textarea::placeholder { color: #94a3b8 !important; }
+.light input:focus,
+.light select:focus,
+.light textarea:focus {
+  border-color: #d97706 !important;
+  outline: none;
+  box-shadow: 0 0 0 1px #d97706 !important;
+}
+
+/* Sidebar nav items in light mode */
+.light .hover\:bg-\[#1E2738\]\/50:hover { background-color: rgba(241,245,249,0.8) !important; }
+.light .hover\:bg-\[#2a3547\]:hover     { background-color: #f1f5f9 !important; }
+
+/* Monospace font data cells in tables */
+.light .erp-table td { color: #1e293b !important; }
+.light .erp-table th { color: #475569 !important; }
+
+/* Code / pre blocks (audit logs) */
+.light pre,
+.light .bg-\[#050810\] {
+  background-color: #f8fafc !important;
+  color: #1e293b !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Dropdown panels (ProductPicker, LotPicker etc) */
+.light .bg-\[#0D1423\] { background-color: #ffffff !important; }
+.light .shadow-black\/60 { box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important; }
+
+/* Charts — axis text */
+.light .recharts-cartesian-axis-tick text { fill: #64748b !important; }
+.light .recharts-cartesian-grid line      { stroke: #e2e8f0 !important; }
+
+/* Recharts tooltips in light mode are handled by CSS vars above */
+
+/* Operations / mode badge backgrounds */
+.light .bg-amber-500\/10  { background-color: rgba(245,158,11,0.1) !important; }
+.light .bg-blue-500\/10   { background-color: rgba(59,130,246,0.1) !important; }
+.light .bg-green-500\/10  { background-color: rgba(34,197,94,0.1) !important; }
+.light .bg-red-500\/10    { background-color: rgba(239,68,68,0.1) !important; }
+.light .bg-emerald-500\/10 { background-color: rgba(16,185,129,0.1) !important; }
+.light .bg-slate-500\/10  { background-color: rgba(100,116,139,0.1) !important; }
+
+/* Specific panels that use dark panel colors */
+.light .bg-\[#0A0F1C\]\/40,
+.light .bg-\[#0A0F1C\]\/50 { background-color: rgba(248,250,252,0.6) !important; }
+
+/* Page section headers */
+.light .text-\[10px\].text-slate-600 { color: #475569 !important; }
+
+/* Fix ModeSelectPage grid background that uses inline opacity-5 grid */
+.light .bg-\[#020408\].relative { background-color: #f5f7fa !important; }
+
+/* Prevent amber button text from being overridden */
+.light .bg-amber-500 .text-white,
+.light .bg-amber-400 .text-white,
+.light button.bg-amber-500,
+.light button.bg-amber-400 { color: #000000 !important; }
+
+/* Fix badge text getting flipped by generic text-slate overrides */
+.light .badge-success { color: #059669 !important; }
+.light .badge-warning { color: #d97706 !important; }
+.light .badge-error   { color: #dc2626 !important; }
+.light .badge-neutral { color: #475569 !important; }
+.light .badge-info    { color: #2563eb !important; }
+
+/* ══════════════════════════════════════════════════════════════════
+   DEBUG WRAPPER
+══════════════════════════════════════════════════════════════════ */
+@layer base {
+  [data-debug-wrapper="true"] { display: contents !important; }
+}
