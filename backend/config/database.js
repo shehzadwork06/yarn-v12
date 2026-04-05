@@ -1622,43 +1622,52 @@ function initializeDatabase() {
   // ── Migration: Add 'RETURNED' status to lots tables ───────────────────────
   // SQLite doesn't support ALTER TABLE to modify CHECK constraints directly.
   // We need to recreate the tables with the new constraint.
-  // This migration checks if the RETURNED status is already allowed.
-  db.pragma('foreign_keys = OFF');
-  try {
-    db.transaction(() => {
-      for (const config of [
-        { 
-          table: 'yarn_lots',
-          oldCheck: "('IN_STORE','DYEING','FINISHED','READY_FOR_SALE','SOLD','PARTIALLY_SOLD')",
-          newCheck: "('IN_STORE','DYEING','FINISHED','READY_FOR_SALE','SOLD','PARTIALLY_SOLD','RETURNED')",
-          locationCheck: "('STORE','DYEING','FINISHED_STORE')",
-          codeCol: 'shade_code'
-        },
-        { 
-          table: 'chem_lots',
-          oldCheck: "('IN_STORE','CHEMICAL_MANUFACTURING','READY_FOR_SALE','SOLD','PARTIALLY_SOLD')",
-          newCheck: "('IN_STORE','CHEMICAL_MANUFACTURING','READY_FOR_SALE','SOLD','PARTIALLY_SOLD','RETURNED')",
-          locationCheck: "('CHEMICAL_STORE')",
-          codeCol: 'chemical_code'
-        }
-      ]) {
-        // Test if RETURNED status is already allowed
-        try {
-          db.prepare(`UPDATE ${config.table} SET status = 'RETURNED' WHERE 1=0`).run();
-          console.log(`[database] ${config.table}: RETURNED status already allowed — skip migration`);
-          continue;
-        } catch (e) {
-          if (!e.message.includes('CHECK constraint')) {
-            console.log(`[database] ${config.table}: RETURNED status already allowed — skip migration`);
-            continue;
-          }
-          // CHECK constraint failed means we need to migrate
-          console.log(`[database] ${config.table}: Migrating to add RETURNED status...`);
-        }
+  console.log('[database] Checking lots tables for RETURNED status migration...');
+  
+  for (const config of [
+    { 
+      table: 'yarn_lots',
+      newCheck: "('IN_STORE','DYEING','FINISHED','READY_FOR_SALE','SOLD','PARTIALLY_SOLD','RETURNED')",
+      locationCheck: "('STORE','DYEING','FINISHED_STORE')",
+      defaultLocation: 'STORE',
+      codeCol: 'shade_code',
+      productTable: 'yarn_products'
+    },
+    { 
+      table: 'chem_lots',
+      newCheck: "('IN_STORE','CHEMICAL_MANUFACTURING','READY_FOR_SALE','SOLD','PARTIALLY_SOLD','RETURNED')",
+      locationCheck: "('CHEMICAL_STORE')",
+      defaultLocation: 'CHEMICAL_STORE',
+      codeCol: 'chemical_code',
+      productTable: 'chem_products'
+    }
+  ]) {
+    // Check if table exists first
+    const tableExists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(config.table);
+    if (!tableExists) {
+      console.log(`[database] ${config.table}: Table doesn't exist yet — skip migration`);
+      continue;
+    }
 
-        // Recreate the table with new CHECK constraint
-        db.exec(`ALTER TABLE ${config.table} RENAME TO ${config.table}_old`);
+    // Check current schema to see if RETURNED is in the CHECK constraint
+    const schemaRow = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`).get(config.table);
+    const schema = schemaRow ? schemaRow.sql : '';
+    
+    if (schema.includes("'RETURNED'")) {
+      console.log(`[database] ${config.table}: RETURNED status already in schema — skip migration`);
+      continue;
+    }
+    
+    console.log(`[database] ${config.table}: Migrating to add RETURNED status...`);
+    
+    try {
+      db.pragma('foreign_keys = OFF');
+      
+      db.transaction(() => {
+        // Rename old table
+        db.exec(`ALTER TABLE ${config.table} RENAME TO ${config.table}_migration_temp`);
         
+        // Create new table with RETURNED status
         db.exec(`
           CREATE TABLE ${config.table} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1666,7 +1675,7 @@ function initializeDatabase() {
             product_id INTEGER NOT NULL,
             purchase_id INTEGER,
             status TEXT DEFAULT 'IN_STORE' CHECK(status IN ${config.newCheck}),
-            location TEXT DEFAULT '${config.locationCheck === "('CHEMICAL_STORE')" ? 'CHEMICAL_STORE' : 'STORE'}' CHECK(location IN ${config.locationCheck}),
+            location TEXT DEFAULT '${config.defaultLocation}' CHECK(location IN ${config.locationCheck}),
             initial_quantity REAL NOT NULL,
             current_quantity REAL NOT NULL,
             ${config.codeCol} TEXT,
@@ -1674,29 +1683,41 @@ function initializeDatabase() {
             notes TEXT,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (product_id) REFERENCES ${config.table.replace('_lots', '_products')}(id)
+            FOREIGN KEY (product_id) REFERENCES ${config.productTable}(id)
           )
         `);
 
-        // Copy data
+        // Copy data from old table
         db.exec(`
           INSERT INTO ${config.table} 
             (id, lot_number, product_id, purchase_id, status, location, initial_quantity, current_quantity, ${config.codeCol}, cost_per_unit, notes, created_at, updated_at)
           SELECT 
             id, lot_number, product_id, purchase_id, status, location, initial_quantity, current_quantity, ${config.codeCol}, cost_per_unit, notes, created_at, updated_at
-          FROM ${config.table}_old
+          FROM ${config.table}_migration_temp
         `);
 
         // Drop old table
-        db.exec(`DROP TABLE ${config.table}_old`);
-        
-        console.log(`[database] ✅ ${config.table} migrated to support RETURNED status`);
+        db.exec(`DROP TABLE ${config.table}_migration_temp`);
+      })();
+      
+      console.log(`[database] ✅ ${config.table} migrated to support RETURNED status`);
+    } catch (e) {
+      console.error(`[database] ❌ ${config.table} migration failed:`, e.message);
+      // Try to recover if temp table exists
+      try {
+        const tempExists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(`${config.table}_migration_temp`);
+        if (tempExists) {
+          db.exec(`DROP TABLE IF EXISTS ${config.table}`);
+          db.exec(`ALTER TABLE ${config.table}_migration_temp RENAME TO ${config.table}`);
+          console.log(`[database] Recovered ${config.table} from temp table`);
+        }
+      } catch (recoverErr) {
+        console.error(`[database] Recovery failed:`, recoverErr.message);
       }
-    })();
-  } catch (e) {
-    console.error('[database] lots table migration error:', e.message);
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
   }
-  db.pragma('foreign_keys = ON');
 
   // ── Auto-seed default data (safe — INSERT OR IGNORE) ─────────────────────
   const alreadySeeded = db.prepare(`SELECT COUNT(*) AS c FROM product_categories`).get().c;

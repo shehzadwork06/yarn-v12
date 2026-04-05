@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 class PurchaseReturnsAPITester:
-    def __init__(self, base_url: str = "http://localhost:8001"):
+    def __init__(self, base_url: str = "https://purchase-lot-cleaner.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = None
         self.tests_run = 0
