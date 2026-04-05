@@ -970,7 +970,7 @@ function initializeDatabase() {
       lot_number TEXT UNIQUE NOT NULL,
       product_id INTEGER NOT NULL,
       purchase_id INTEGER,
-      status TEXT DEFAULT 'IN_STORE' CHECK(status IN ('IN_STORE','DYEING','FINISHED','READY_FOR_SALE','SOLD','PARTIALLY_SOLD')),
+      status TEXT DEFAULT 'IN_STORE' CHECK(status IN ('IN_STORE','DYEING','FINISHED','READY_FOR_SALE','SOLD','PARTIALLY_SOLD','RETURNED')),
       location TEXT DEFAULT 'STORE' CHECK(location IN ('STORE','DYEING','FINISHED_STORE')),
       initial_quantity REAL NOT NULL,
       current_quantity REAL NOT NULL,
@@ -1237,7 +1237,7 @@ function initializeDatabase() {
       lot_number TEXT UNIQUE NOT NULL,
       product_id INTEGER NOT NULL,
       purchase_id INTEGER,
-      status TEXT DEFAULT 'IN_STORE' CHECK(status IN ('IN_STORE','CHEMICAL_MANUFACTURING','READY_FOR_SALE','SOLD','PARTIALLY_SOLD')),
+      status TEXT DEFAULT 'IN_STORE' CHECK(status IN ('IN_STORE','CHEMICAL_MANUFACTURING','READY_FOR_SALE','SOLD','PARTIALLY_SOLD','RETURNED')),
       location TEXT DEFAULT 'CHEMICAL_STORE' CHECK(location IN ('CHEMICAL_STORE')),
       initial_quantity REAL NOT NULL,
       current_quantity REAL NOT NULL,
@@ -1616,6 +1616,85 @@ function initializeDatabase() {
     })();
   } catch (e) {
     console.error('[database] purchase_returns migration error:', e.message);
+  }
+  db.pragma('foreign_keys = ON');
+
+  // ── Migration: Add 'RETURNED' status to lots tables ───────────────────────
+  // SQLite doesn't support ALTER TABLE to modify CHECK constraints directly.
+  // We need to recreate the tables with the new constraint.
+  // This migration checks if the RETURNED status is already allowed.
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      for (const config of [
+        { 
+          table: 'yarn_lots',
+          oldCheck: "('IN_STORE','DYEING','FINISHED','READY_FOR_SALE','SOLD','PARTIALLY_SOLD')",
+          newCheck: "('IN_STORE','DYEING','FINISHED','READY_FOR_SALE','SOLD','PARTIALLY_SOLD','RETURNED')",
+          locationCheck: "('STORE','DYEING','FINISHED_STORE')",
+          codeCol: 'shade_code'
+        },
+        { 
+          table: 'chem_lots',
+          oldCheck: "('IN_STORE','CHEMICAL_MANUFACTURING','READY_FOR_SALE','SOLD','PARTIALLY_SOLD')",
+          newCheck: "('IN_STORE','CHEMICAL_MANUFACTURING','READY_FOR_SALE','SOLD','PARTIALLY_SOLD','RETURNED')",
+          locationCheck: "('CHEMICAL_STORE')",
+          codeCol: 'chemical_code'
+        }
+      ]) {
+        // Test if RETURNED status is already allowed
+        try {
+          db.prepare(`UPDATE ${config.table} SET status = 'RETURNED' WHERE 1=0`).run();
+          console.log(`[database] ${config.table}: RETURNED status already allowed — skip migration`);
+          continue;
+        } catch (e) {
+          if (!e.message.includes('CHECK constraint')) {
+            console.log(`[database] ${config.table}: RETURNED status already allowed — skip migration`);
+            continue;
+          }
+          // CHECK constraint failed means we need to migrate
+          console.log(`[database] ${config.table}: Migrating to add RETURNED status...`);
+        }
+
+        // Recreate the table with new CHECK constraint
+        db.exec(`ALTER TABLE ${config.table} RENAME TO ${config.table}_old`);
+        
+        db.exec(`
+          CREATE TABLE ${config.table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lot_number TEXT UNIQUE NOT NULL,
+            product_id INTEGER NOT NULL,
+            purchase_id INTEGER,
+            status TEXT DEFAULT 'IN_STORE' CHECK(status IN ${config.newCheck}),
+            location TEXT DEFAULT '${config.locationCheck === "('CHEMICAL_STORE')" ? 'CHEMICAL_STORE' : 'STORE'}' CHECK(location IN ${config.locationCheck}),
+            initial_quantity REAL NOT NULL,
+            current_quantity REAL NOT NULL,
+            ${config.codeCol} TEXT,
+            cost_per_unit REAL DEFAULT 0,
+            notes TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (product_id) REFERENCES ${config.table.replace('_lots', '_products')}(id)
+          )
+        `);
+
+        // Copy data
+        db.exec(`
+          INSERT INTO ${config.table} 
+            (id, lot_number, product_id, purchase_id, status, location, initial_quantity, current_quantity, ${config.codeCol}, cost_per_unit, notes, created_at, updated_at)
+          SELECT 
+            id, lot_number, product_id, purchase_id, status, location, initial_quantity, current_quantity, ${config.codeCol}, cost_per_unit, notes, created_at, updated_at
+          FROM ${config.table}_old
+        `);
+
+        // Drop old table
+        db.exec(`DROP TABLE ${config.table}_old`);
+        
+        console.log(`[database] ✅ ${config.table} migrated to support RETURNED status`);
+      }
+    })();
+  } catch (e) {
+    console.error('[database] lots table migration error:', e.message);
   }
   db.pragma('foreign_keys = ON');
 

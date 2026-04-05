@@ -303,11 +303,7 @@ const { authenticate } = require('../middlewares/auth');
 const { generateNumber } = require('../utils/helpers');
 router.use(authenticate);
 
-// ── Helper: disable FKs, run a delete function, re-enable FKs ────────────────
-// This is the guaranteed fix for the FOREIGN KEY constraint failed error.
-// The yarn_purchase_return_items table has FK(lot_id) → yarn_lots which we
-// cannot drop via ALTER TABLE in SQLite. Disabling FK checks for the cleanup
-// is the only reliable solution without a full DB rebuild.
+// ── Helper: disable FKs, run a function, re-enable FKs ────────────────
 function withFKDisabled(db, fn) {
   db.pragma('foreign_keys = OFF');
   try {
@@ -317,53 +313,69 @@ function withFKDisabled(db, fn) {
   }
 }
 
-// ── Helper: full-return cleanup ───────────────────────────────────────────────
-function runFullReturnCleanup(db, T, purchase_id) {
+// ── Helper: Process purchase return - handles partial and full returns ────────
+// 1. For partial returns: Reduce quantity from purchase item
+// 2. For lots with zero quantity after return: Mark lot as 'RETURNED'
+// 3. For full purchase returns (all items fully returned): Delete purchase record
+function processPurchaseReturn(db, T, purchase_id, returnedItems) {
   const purchaseItems = db.prepare(`SELECT * FROM ${T.pur_items} WHERE purchase_id = ?`).all(purchase_id);
   if (!purchaseItems.length) return;
 
-  const allReturnItems = db.prepare(
-    `SELECT ri.product_id, ri.quantity
-     FROM ${T.pur_ret_items} ri
-     JOIN ${T.pur_returns} pr ON ri.return_id = pr.id
-     WHERE pr.purchase_id = ?`
-  ).all(purchase_id);
+  // Process each returned item
+  for (const retItem of returnedItems) {
+    const purItem = purchaseItems.find(pi => parseInt(pi.lot_id) === parseInt(retItem.lot_id));
+    if (!purItem) continue;
 
-  let allReturned = true;
-  for (const pi of purchaseItems) {
-    const returnedQty = allReturnItems
-      .filter(ri => parseInt(ri.product_id) === parseInt(pi.product_id))
-      .reduce((sum, ri) => sum + ri.quantity, 0);
-    if (returnedQty < pi.quantity) { allReturned = false; break; }
+    const newQty = purItem.quantity - retItem.quantity;
+    
+    if (newQty <= 0) {
+      // Full item return - mark lot as RETURNED
+      db.prepare(`UPDATE ${T.lots} SET status = 'RETURNED', current_quantity = 0, updated_at = datetime('now') WHERE id = ?`).run(retItem.lot_id);
+      db.prepare(`UPDATE ${T.inventory} SET quantity = 0, updated_at = datetime('now') WHERE lot_id = ?`).run(retItem.lot_id);
+      // Set purchase item quantity to 0
+      db.prepare(`UPDATE ${T.pur_items} SET quantity = 0, amount = 0 WHERE id = ?`).run(purItem.id);
+    } else {
+      // Partial return - just reduce quantities (already done in main logic)
+      // Update purchase item quantity
+      db.prepare(`UPDATE ${T.pur_items} SET quantity = ?, amount = ? WHERE id = ?`).run(newQty, newQty * purItem.rate, purItem.id);
+    }
   }
 
-  if (!allReturned) return;
+  // Recalculate purchase total
+  const updatedItems = db.prepare(`SELECT * FROM ${T.pur_items} WHERE purchase_id = ?`).all(purchase_id);
+  const newTotal = updatedItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+  db.prepare(`UPDATE ${T.purchases} SET total_amount = ? WHERE id = ?`).run(newTotal, purchase_id);
 
-  const lotIds = purchaseItems.map(pi => pi.lot_id).filter(Boolean);
-  const ph = lotIds.length > 0 ? lotIds.map(() => '?').join(',') : null;
+  // Check if all items are fully returned (all quantities are 0)
+  const allFullyReturned = updatedItems.every(item => item.quantity === 0);
+  
+  if (allFullyReturned) {
+    // All lots associated with this purchase
+    const lotIds = purchaseItems.map(pi => pi.lot_id).filter(Boolean);
+    const ph = lotIds.length > 0 ? lotIds.map(() => '?').join(',') : null;
 
-  // Safety: don't delete if any lot was sold or manufactured
-  if (ph) {
-    const soldCount  = db.prepare(`SELECT COUNT(*) as n FROM ${T.sale_items}    WHERE lot_id IN (${ph})`).get(...lotIds).n;
-    const manufCount = db.prepare(`SELECT COUNT(*) as n FROM ${T.manufacturing} WHERE lot_id IN (${ph})`).get(...lotIds).n;
-    if (soldCount > 0 || manufCount > 0) return;
-  }
-
-  // Disable FK checks so lot deletion doesn't fail due to return_items FK
-  withFKDisabled(db, () => {
-    // Null out purchase_id on return records (purchase_id is nullable after migration)
-    db.prepare(`UPDATE ${T.pur_returns} SET purchase_id = NULL WHERE purchase_id = ?`).run(purchase_id);
-
-    // Delete inventory first, then lots
+    // Safety: don't delete purchase if any lot was sold or manufactured
     if (ph) {
-      db.prepare(`DELETE FROM ${T.inventory} WHERE lot_id IN (${ph})`).run(...lotIds);
-      db.prepare(`DELETE FROM ${T.lots}      WHERE id      IN (${ph})`).run(...lotIds);
+      const soldCount  = db.prepare(`SELECT COUNT(*) as n FROM ${T.sale_items}    WHERE lot_id IN (${ph})`).get(...lotIds).n;
+      const manufCount = db.prepare(`SELECT COUNT(*) as n FROM ${T.manufacturing} WHERE lot_id IN (${ph})`).get(...lotIds).n;
+      if (soldCount > 0 || manufCount > 0) return;
     }
 
-    // Delete purchase items then the purchase
-    db.prepare(`DELETE FROM ${T.pur_items} WHERE purchase_id = ?`).run(purchase_id);
-    db.prepare(`DELETE FROM ${T.purchases} WHERE id = ?`).run(purchase_id);
-  });
+    // Delete the purchase record (lots remain with RETURNED status)
+    withFKDisabled(db, () => {
+      // Null out purchase_id on return records
+      db.prepare(`UPDATE ${T.pur_returns} SET purchase_id = NULL WHERE purchase_id = ?`).run(purchase_id);
+      
+      // Mark all lots as RETURNED (in case some weren't already)
+      if (ph) {
+        db.prepare(`UPDATE ${T.lots} SET status = 'RETURNED', updated_at = datetime('now') WHERE id IN (${ph})`).run(...lotIds);
+      }
+
+      // Delete purchase items then the purchase itself
+      db.prepare(`DELETE FROM ${T.pur_items} WHERE purchase_id = ?`).run(purchase_id);
+      db.prepare(`DELETE FROM ${T.purchases} WHERE id = ?`).run(purchase_id);
+    });
+  }
 }
 
 // ─── GET /api/purchase-returns ───────────────────────────────────────────────
@@ -480,7 +492,7 @@ router.post('/', (req, res) => {
         ).run(returnId, item.lot_id, item.product_id, item.quantity, item.rate, item.quantity * item.rate);
       }
 
-      // Reduce lot stock and inventory
+      // Reduce lot stock and inventory (temporary - will be adjusted by processPurchaseReturn)
       db.prepare(`UPDATE ${T.lots}      SET current_quantity = current_quantity - ?, updated_at = datetime('now') WHERE id      = ?`).run(item.quantity, item.lot_id);
       db.prepare(`UPDATE ${T.inventory} SET quantity          = quantity          - ?, updated_at = datetime('now') WHERE lot_id = ?`).run(item.quantity, item.lot_id);
     }
@@ -501,8 +513,8 @@ router.post('/', (req, res) => {
       total, newBal
     );
 
-    // Full-return cleanup — FK checks disabled inside the helper
-    runFullReturnCleanup(db, T, purchase_id);
+    // Process purchase return - handles partial returns and full cleanup
+    processPurchaseReturn(db, T, purchase_id, items);
 
     return db.prepare(`SELECT * FROM ${T.pur_returns} WHERE id = ?`).get(returnId);
   });
@@ -526,6 +538,7 @@ router.put('/:id', (req, res) => {
   const txn = db.transaction(() => {
     const existingItems = db.prepare(`SELECT * FROM ${T.pur_ret_items} WHERE return_id = ?`).all(ret.id);
     let newTotal = 0;
+    const qtyChanges = [];
 
     for (const item of items) {
       const existing = existingItems.find(ei => parseInt(ei.lot_id) === parseInt(item.lot_id));
@@ -538,6 +551,9 @@ router.put('/:id', (req, res) => {
       db.prepare(`UPDATE ${T.pur_ret_items} SET quantity = ?, rate = ?, amount = ? WHERE id = ?`).run(item.quantity, item.rate, newAmt, existing.id);
       db.prepare(`UPDATE ${T.lots}          SET current_quantity = current_quantity - ?, updated_at = datetime('now') WHERE id      = ?`).run(qtyDiff, item.lot_id);
       db.prepare(`UPDATE ${T.inventory}     SET quantity          = quantity          - ?, updated_at = datetime('now') WHERE lot_id = ?`).run(qtyDiff, item.lot_id);
+      
+      // Track quantity changes for purchase item updates
+      qtyChanges.push({ lot_id: item.lot_id, quantity: qtyDiff });
     }
 
     db.prepare(`UPDATE ${T.pur_returns} SET date = ?, reason = ?, notes = ?, total_amount = ? WHERE id = ?`).run(date || ret.date, reason, notes || null, newTotal, ret.id);
@@ -553,9 +569,71 @@ router.put('/:id', (req, res) => {
       }
     }
 
-    // Full-return cleanup — FK checks disabled inside the helper
+    // Process purchase return with updated quantities
     if (ret.purchase_id) {
-      runFullReturnCleanup(db, T, ret.purchase_id);
+      // For edits, we need to recalculate based on total returned quantities
+      const allReturnItems = db.prepare(
+        `SELECT ri.lot_id, SUM(ri.quantity) as total_qty
+         FROM ${T.pur_ret_items} ri
+         JOIN ${T.pur_returns} pr ON ri.return_id = pr.id
+         WHERE pr.purchase_id = ?
+         GROUP BY ri.lot_id`
+      ).all(ret.purchase_id);
+
+      // Update purchase items and lot statuses based on total returns
+      const purchaseItems = db.prepare(`SELECT * FROM ${T.pur_items} WHERE purchase_id = ?`).all(ret.purchase_id);
+      
+      for (const purItem of purchaseItems) {
+        const totalReturned = allReturnItems.find(ri => parseInt(ri.lot_id) === parseInt(purItem.lot_id));
+        const returnedQty = totalReturned ? totalReturned.total_qty : 0;
+        
+        // Get original purchase quantity (initial_quantity from lot)
+        const lot = db.prepare(`SELECT * FROM ${T.lots} WHERE id = ?`).get(purItem.lot_id);
+        const originalQty = lot ? lot.initial_quantity : purItem.quantity + returnedQty;
+        const remainingQty = originalQty - returnedQty;
+        
+        if (remainingQty <= 0) {
+          // Full return - mark lot as RETURNED
+          db.prepare(`UPDATE ${T.lots} SET status = 'RETURNED', updated_at = datetime('now') WHERE id = ?`).run(purItem.lot_id);
+          db.prepare(`UPDATE ${T.pur_items} SET quantity = 0, amount = 0 WHERE id = ?`).run(purItem.id);
+        } else {
+          // Partial return - update quantities
+          db.prepare(`UPDATE ${T.pur_items} SET quantity = ?, amount = ? WHERE id = ?`).run(remainingQty, remainingQty * purItem.rate, purItem.id);
+          // If lot was marked RETURNED before but now has remaining qty, reset status
+          if (lot && lot.status === 'RETURNED') {
+            db.prepare(`UPDATE ${T.lots} SET status = 'IN_STORE', updated_at = datetime('now') WHERE id = ?`).run(purItem.lot_id);
+          }
+        }
+      }
+
+      // Recalculate purchase total
+      const updatedPurItems = db.prepare(`SELECT * FROM ${T.pur_items} WHERE purchase_id = ?`).all(ret.purchase_id);
+      const newPurTotal = updatedPurItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      db.prepare(`UPDATE ${T.purchases} SET total_amount = ? WHERE id = ?`).run(newPurTotal, ret.purchase_id);
+
+      // Check if all items are fully returned
+      const allFullyReturned = updatedPurItems.every(item => item.quantity === 0);
+      
+      if (allFullyReturned) {
+        const lotIds = purchaseItems.map(pi => pi.lot_id).filter(Boolean);
+        const ph = lotIds.length > 0 ? lotIds.map(() => '?').join(',') : null;
+
+        // Safety check
+        if (ph) {
+          const soldCount  = db.prepare(`SELECT COUNT(*) as n FROM ${T.sale_items}    WHERE lot_id IN (${ph})`).get(...lotIds).n;
+          const manufCount = db.prepare(`SELECT COUNT(*) as n FROM ${T.manufacturing} WHERE lot_id IN (${ph})`).get(...lotIds).n;
+          if (soldCount === 0 && manufCount === 0) {
+            withFKDisabled(db, () => {
+              db.prepare(`UPDATE ${T.pur_returns} SET purchase_id = NULL WHERE purchase_id = ?`).run(ret.purchase_id);
+              if (ph) {
+                db.prepare(`UPDATE ${T.lots} SET status = 'RETURNED', updated_at = datetime('now') WHERE id IN (${ph})`).run(...lotIds);
+              }
+              db.prepare(`DELETE FROM ${T.pur_items} WHERE purchase_id = ?`).run(ret.purchase_id);
+              db.prepare(`DELETE FROM ${T.purchases} WHERE id = ?`).run(ret.purchase_id);
+            });
+          }
+        }
+      }
     }
 
     return db.prepare(`SELECT * FROM ${T.pur_returns} WHERE id = ?`).get(ret.id);
